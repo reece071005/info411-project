@@ -67,8 +67,8 @@ This repository contains four main files:
 
 ## Authors
 
-* Reece 
-* Rahma 
-* Sarib
+* 8233718
+* 8887901
+* 9091488
 
 ---
