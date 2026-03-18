@@ -67,8 +67,8 @@ This repository contains four main files:
 
 ## Authors
 
-* Reece Bridle (8233718)
-* Rahma Ammiche (8887901)
-* Sarib Saeed Ramzan (9091488)
+* Reece 
+* Rahma 
+* Sarib
 
 ---
