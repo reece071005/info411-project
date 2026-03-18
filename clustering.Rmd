@@ -1,0 +1,185 @@
+---
+title: "Info 411 Project - Clustering"
+output: latex_document
+---
+
+# Clustering
+
+#### Setup & Configuration
+
+Loading the libraries and data set.
+
+```{r}
+if (!require(readxl)) {install.packages("readxl")}
+if (!require(dplyr)) {install.packages("dplyr")}
+if (!require(janitor)) {install.packages("janitor")}
+if (!require(ggplot2)) {install.packages("ggplot2")}
+if (!require(tidyr)) {install.packages("tidyr")}
+if (!require(cluster)) {install.packages("cluster")}
+if (!require(factoextra)) {install.packages("factoextra")}
+if (!require(gridExtra)) {install.packages("gridExtra")}
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(ggplot2)
+library(tidyr)
+library(cluster)
+library(factoextra)
+library(gridExtra)
+
+set.seed(123)
+```
+
+Loading the preprocessed data.
+
+```{r}
+data_path <- "INFO411_master_preprocessed.xlsx"
+df <- read_excel(data_path, sheet="MASTER")
+
+head(df)
+```
+
+#### Clustering Specific Processing
+
+Exclude IDs, dates, and labels.
+
+```{r}
+exclude <- c("IsChurned", "Countries")
+exclude <- exclude[exclude %in% names(df)]
+
+X <- df %>%
+  select(-all_of(exclude)) %>%
+  select(where(is.numeric))
+
+stopifnot(nrow(X) == nrow(df))
+summary(X)
+head(X, 20)
+```
+
+Scaling the data
+
+```{r}
+X_scaled <- scale(X)
+head(X_scaled)
+```
+
+#### Determining the Optimal Number of Clusters
+
+##### Elbow Plot
+
+The elbow plot is used to find the optimal number of clusters for K-means clustering. The optimal number of clusters is identified by looking at the point where the rate sharply decreases (the "elbow"). In our case this would be at k=4 or k=5.
+
+```{r}
+fviz_nbclust(X_scaled, kmeans, method = "wss")
+```
+
+##### Silhouette Plot
+
+The silhouette plot can also be used to determine the optimum K-value. The optimal number of clusters is the value of k which maximizes the average silhouette width, in our case, this is k=4.
+
+```{r}
+fviz_nbclust(X_scaled, kmeans, method = "silhouette")
+```
+
+##### Conclusion
+
+Based on the results from the elbow and silhouette plots, we will select k=4 as the optimal number of clusters for the K-means model. The silhouette plot clearly shows the highest average silhoete width at k=4, indicating clear separation between clusters. The elbow plot also shows a noticeable change in the rate of decrease around k=4 or k=5, with diminishing improvements beyond this point. Therefore, k=4 will be chosen as the final value, as it provides the best balance between cluster quality and simplicity.
+
+#### K-means Clustering Implementation
+
+##### Creating the K-Means Clustering Model
+
+After determining k=4 is the optimal number of clusters, the k-means algorithm was applied to the scaled data set.
+
+```{r}
+kmeans_model <- kmeans(X_scaled, centers = 4, nstart = 25)
+df$cluster <- factor(kmeans_model$cluster)
+```
+
+The distribution of observations across clusters is shown below:
+
+```{r}
+table(df$cluster)
+```
+
+#### Cluster Visualization
+
+##### Cluster Plot
+
+The cluster visualzation shows how the observations are grouped in the feature space. Each color shows a different cluster identified by the K-means algorithm.
+
+```{r}
+fviz_cluster(
+  kmeans_model,
+  data = X_scaled,
+  geom = "point",
+  ellipse.type = "convex",
+  ggtheme = theme_minimal()
+)
+```
+
+##### Cluster Profiling
+
+The cluster profiling table shows the average values of the variables for each cluster. By comparing thees values, we can identify and understand the characteristicsz of customers in each group
+
+```{r}
+cluster_profile <- df %>%
+  group_by(cluster) %>%
+  summarise(
+    Recency = mean(RecencyDays),
+    Frequency = mean(Frequency),
+    Monetary = mean(Monetary),
+    BasketValue = mean(AvgBasketValue),
+    Items = mean(NumItems),
+    Customers = n()
+  )
+
+head(cluster_profile)
+```
+
+##### Cluster Comparison Chart
+
+Before plotting the chart the cluster profile table are first converted into long format so that the behavioral metrics could be easily compared. After that, the values are standardized within eahc metric to ensure that variables which have differnett scales would be fairly represented by the visualization.
+
+```{r}
+cluster_long <- cluster_profile %>%
+  pivot_longer(
+    cols = -cluster,
+    names_to = "Metric",
+    values_to = "Value"
+  )
+
+cluster_long <- cluster_long %>%
+  group_by(Metric) %>%
+  mutate(ValueScaled = scale(Value))
+```
+
+The standardized metrics were then plotted into a cluster comparison bar chart to visually compare customer behavior across the four clusters. The visualization shows how each cluster differs in terms of recency, purchase frequency, spending, basket value, and number of items, making behavioral patterns between groups easy to spot.
+
+```{r}
+ggplot(cluster_long, aes(x = Metric, y = ValueScaled, fill = cluster)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(
+    title = "Cluster Comparison of Customer Behaviour",
+    x = "Customer Behaviour Metrics",
+    y = "Standardized Value"
+  )
+```
+
+#### Cluster Visualization
+
+The clustering analysis identified four distinct customer groups based on purchasing behavior. The optimal number of clusters was determined using both the Elbow Method and Silhouette Method, which indicated that k=4 provided the best balance between cluster separation and model simplicity.
+
+The results revealed the following patterns within the customer data:
+
+-   **Cluster 1** contains medium-value customers who make regular purchases with moderate spending levels.
+
+-   **Cluster 2** contains customers with very high recency and low purchase activity, which suggests they may be at risk of churn.
+
+-   **Cluster 3** contains low value customers, who purchase occasionally and spend relatively small amounts.
+
+-   **Cluster 4** contains high-value customers, who have high purchase frequency, spending, and basket values.
+
+These clusters provide useful information about customer behaviors and could help guide targeted marketing strategies, such as retention campaugns for potential churn customers, and rewards programs for high loyalty customers.

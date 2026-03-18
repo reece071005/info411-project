@@ -1,0 +1,155 @@
+---
+title: "Info 411 Project - General Data Processing"
+output: pdf_document
+---
+
+# General Data Processing
+
+#### Setup & Configuration
+
+Loading the libraries and the data set, setting the seed, and defining thresholds + sampling information.
+
+```{r}
+library(readxl)
+library(dplyr)
+library(lubridate)
+library(writexl)
+
+set.seed(123)
+
+#Targeting 1000 unique customers
+sample_n_customers <- 1000
+
+#Churn thresholds (provided in project brief)
+recency_threshold_days <- 90
+low_frequency_threshold <- 3
+low_monetrary_threshold <- 100
+
+file_path <- "Online Retail.xlsx"
+df_raw <- read_excel(file_path)
+head(df_raw)
+```
+
+#### Cleaning the Data
+
+Removing invalid rows, creating a TotalPrice and Date column and normalizing the data types.
+
+```{r}
+
+#Normalizing the data and creating TotalPrice + Date.
+df_clean <- df_raw %>%
+  mutate(
+    CustomerID = as.character(CustomerID),
+    InvoiceNo = as.character(InvoiceNo),
+    InvoiceDate = as.POSIXct(InvoiceDate, tz="UTC"),
+    Date = as.Date(InvoiceDate),
+    Quantity = as.numeric(Quantity),
+    UnitPricce = as.numeric(UnitPrice),
+    TotalPrice = Quantity * UnitPrice
+  ) %>%
+  
+  #Remove rows with no customerID
+  filter(!is.na(CustomerID), CustomerID != "") %>%
+  
+  #Remove rows with no price or quantity
+  filter(Quantity > 0, UnitPrice > 0) %>%
+  
+  #Remove rows with no date
+  filter(!is.na(Date))
+  
+cat("Rows before cleaning:", nrow(df_raw), "\n")
+cat("Rows after cleaning:", nrow(df_clean), "\n")
+cat("Rows removed:", nrow(df_raw) - nrow(df_clean), "\n")
+```
+
+#### Customer-Level Sampling
+
+Sample unique customers and keep all their transactions, ensuring customers behavioral history is kept.
+
+```{r}
+#Calcualte number of unqiue customers
+all_customers <- unique(df_clean$CustomerID)
+cat("Number of unique customers:", length(all_customers), "\n")
+
+#Sample 1000 customers from dataset
+sampled_customers <- sample(all_customers, size = sample_n_customers, replace = FALSE)
+
+df_txn <- df_clean %>%
+  filter(CustomerID %in% sampled_customers)
+
+cat("Number of rwas in sampled data:", nrow(df_txn), "\n")
+```
+
+#### Create Customer Behavior Features
+
+Converting transnational data into one row per customer, creating usable features for all models.
+
+```{r}
+#Getting the most recent date in the dataset (e.g. dataset end date)
+analysis_end_date <- max(df_txn$Date, na.rm = TRUE)
+
+#Creating aggregated dataset with new features
+df_master <- df_txn %>%
+  group_by(CustomerID) %>%
+  summarise(
+    LastPurchaseDate = max(Date, na.rm = TRUE),
+    RecencyDays = as.integer(analysis_end_date - LastPurchaseDate),
+    Frequency = n_distinct(InvoiceNo),
+    Monetary = sum(TotalPrice, na.rm = TRUE),
+    AvgBasketValue = Monetary / pmax(Frequency, 1),
+    NumItems = sum(Quantity, na.rm = TRUE),
+    Countries = n_distinct(Country),
+    .groups = "drop"
+  )
+
+head(df_master)
+```
+
+#### Handling Extreme Outliers
+
+Remove very high spenders, to improve cluster quality.
+
+```{r}
+#Setting maximum total spend, calcualtes the 99th percentile.
+cap <- quantile(df_master$Monetary, 0.99, na.rm = TRUE)
+
+#Removing all rows above this value
+df_master <- df_master %>%
+  filter(Monetary <= cap)
+
+summary(df_master$Monetary)
+```
+
+#### Creating Churn Label
+
+add churn label based on project guidelines
+
+```{r}
+#Setting 1 or 0 for IsChurned depending on condition
+df_master <- df_master %>%
+  mutate(
+    IsChurned = if_else(
+      RecencyDays > recency_threshold_days | (Frequency <= low_frequency_threshold & Monetary <= low_monetrary_threshold),
+      1L, 0L
+    )
+  )
+
+#How many customers fall into each class
+table(df_master$IsChurned)
+```
+
+#### Final Check
+
+```{r}
+summary(df_master)
+head(df_master)
+```
+
+#### Exporting Processed Dataset
+
+```{r}
+write_xlsx(
+  list(MASTER = df_master),
+  "INFO411_master_preprocessed.xlsx"
+)
+```
